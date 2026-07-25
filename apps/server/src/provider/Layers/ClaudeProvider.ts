@@ -1,6 +1,7 @@
 import {
   type ClaudeSettings,
   type ModelCapabilities,
+  type ServerProviderModel,
   type ServerProviderSlashCommand,
 } from "@t3tools/contracts";
 import * as DateTime from "effect/DateTime";
@@ -21,6 +22,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 
 import {
+  buildSelectOptionDescriptor,
   buildServerProvider,
   DEFAULT_TIMEOUT_MS,
   isCommandMissingCause,
@@ -36,6 +38,7 @@ import {
   BUNDLED_CLAUDE_MODEL_CATALOG,
   type ClaudeModelCatalog,
   formatClaudeVersionUpgradeMessage,
+  getClaudeCatalogModelCapabilities,
   resolveClaudeModelsForVersion,
 } from "../ClaudeModelCatalog.ts";
 
@@ -43,10 +46,134 @@ const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabili
   optionDescriptors: [],
 });
 
+function buildGatewayEffortCapabilities(
+  efforts: ReadonlyArray<string>,
+  defaultEffort: string,
+): ModelCapabilities {
+  return createModelCapabilities({
+    optionDescriptors: [
+      buildSelectOptionDescriptor({
+        id: "effort",
+        label: "Reasoning",
+        options: efforts.map((value) => ({
+          value,
+          label: value === "xhigh" ? "Extra High" : toTitleCaseWords(value),
+          ...(value === defaultEffort ? { isDefault: true } : {}),
+        })),
+      }),
+    ],
+  });
+}
+
+const OPENAI_GATEWAY_MODELS: ReadonlyArray<ServerProviderModel> = [
+  {
+    slug: "gpt-5.6-sol",
+    name: "GPT 5.6 Sol",
+    isCustom: true,
+    isDefault: true,
+    capabilities: buildGatewayEffortCapabilities(["low", "medium", "high", "xhigh", "max"], "low"),
+  },
+  {
+    slug: "gpt-5.6-terra",
+    name: "GPT 5.6 Terra",
+    isCustom: true,
+    capabilities: buildGatewayEffortCapabilities(
+      ["low", "medium", "high", "xhigh", "max"],
+      "medium",
+    ),
+  },
+  {
+    slug: "gpt-5.6-luna",
+    name: "GPT 5.6 Luna",
+    isCustom: true,
+    capabilities: buildGatewayEffortCapabilities(
+      ["low", "medium", "high", "xhigh", "max"],
+      "medium",
+    ),
+  },
+  {
+    slug: "gpt-5.5",
+    name: "GPT 5.5",
+    isCustom: true,
+    capabilities: buildGatewayEffortCapabilities(["low", "medium", "high", "xhigh"], "medium"),
+  },
+  {
+    slug: "gpt-5.4",
+    name: "GPT 5.4",
+    isCustom: true,
+    capabilities: buildGatewayEffortCapabilities(["low", "medium", "high", "xhigh"], "medium"),
+  },
+  {
+    slug: "gpt-5.4-mini",
+    name: "GPT 5.4 Mini",
+    isCustom: true,
+    capabilities: buildGatewayEffortCapabilities(["low", "medium", "high", "xhigh"], "medium"),
+  },
+  {
+    slug: "gpt-5.3-codex-spark",
+    name: "GPT 5.3 Codex Spark",
+    isCustom: true,
+    capabilities: buildGatewayEffortCapabilities(["low", "medium", "high", "xhigh"], "medium"),
+  },
+];
+
 const CLAUDE_PRESENTATION = {
   displayName: "Claude",
   showInteractionModeToggle: true,
 } as const;
+
+export function getClaudeModelCapabilities(model: string | null | undefined): ModelCapabilities {
+  const slug = model?.trim();
+  return (
+    OPENAI_GATEWAY_MODELS.find((candidate) => candidate.slug === slug)?.capabilities ??
+    getClaudeCatalogModelCapabilities(BUNDLED_CLAUDE_MODEL_CATALOG, slug) ??
+    DEFAULT_CLAUDE_MODEL_CAPABILITIES
+  );
+}
+
+export function claudeModelsFromSettings(
+  builtInModels: ReadonlyArray<ServerProviderModel>,
+  customModels: ReadonlyArray<string>,
+): ReadonlyArray<ServerProviderModel> {
+  return providerModelsFromSettings(
+    builtInModels,
+    customModels,
+    DEFAULT_CLAUDE_MODEL_CAPABILITIES,
+  ).map((model) => {
+    if (!model.isCustom) {
+      return model;
+    }
+    const gatewayModel = OPENAI_GATEWAY_MODELS.find((candidate) => candidate.slug === model.slug);
+    return gatewayModel ?? model;
+  });
+}
+
+export function normalizeClaudeCliEffort(
+  effort: string | null | undefined,
+  model: string | null | undefined,
+): string | undefined {
+  if (!effort || effort === "ultrathink") {
+    return undefined;
+  }
+  if (effort === "ultracode") {
+    return "xhigh";
+  }
+  if (
+    effort === "xhigh" &&
+    !OPENAI_GATEWAY_MODELS.some((candidate) => candidate.slug === model) &&
+    model !== "claude-fable-5" &&
+    model !== "claude-opus-5" &&
+    model !== "claude-opus-4-8" &&
+    model !== "claude-sonnet-5"
+  ) {
+    return "max";
+  }
+  if (effort === "max" && model === "claude-sonnet-4-6") {
+    return "high";
+  }
+  return effort;
+}
+
 function toTitleCaseWords(value: string): string {
   const parts: Array<string> = [];
   for (const part of value.split(/[\s_-]+/g)) {
@@ -402,10 +529,9 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
 > {
   const resolvedEnvironment = environment ?? process.env;
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
-  const allModels = providerModelsFromSettings(
+  const allModels = claudeModelsFromSettings(
     modelCatalog.models.map((entry) => entry.model),
     claudeSettings.customModels,
-    DEFAULT_CLAUDE_MODEL_CAPABILITIES,
   );
 
   if (!claudeSettings.enabled) {
@@ -492,10 +618,9 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     });
   }
 
-  const models = providerModelsFromSettings(
+  const models = claudeModelsFromSettings(
     resolveClaudeModelsForVersion(modelCatalog, parsedVersion),
     claudeSettings.customModels,
-    DEFAULT_CLAUDE_MODEL_CAPABILITIES,
   );
   const versionUpgradeMessage = formatClaudeVersionUpgradeMessage(modelCatalog, parsedVersion);
 
@@ -564,10 +689,9 @@ export const makePendingClaudeProvider = (
 ): Effect.Effect<ServerProviderDraft> =>
   Effect.gen(function* () {
     const checkedAt = yield* nowIso;
-    const models = providerModelsFromSettings(
+    const models = claudeModelsFromSettings(
       modelCatalog.models.map((entry) => entry.model),
       claudeSettings.customModels,
-      DEFAULT_CLAUDE_MODEL_CAPABILITIES,
     );
 
     if (!claudeSettings.enabled) {
