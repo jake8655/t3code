@@ -519,22 +519,6 @@ export const make = Effect.gen(function* () {
     });
 
     window.webContents.setWindowOpenHandler(({ url }) => {
-      if (
-        hostedAppMode &&
-        (url === "about:blank" || Option.isSome(ElectronShell.parseSafeExternalUrl(url)))
-      ) {
-        return {
-          action: "allow",
-          overrideBrowserWindowOptions: {
-            webPreferences: {
-              contextIsolation: true,
-              nodeIntegration: false,
-              sandbox: true,
-              webviewTag: false,
-            },
-          },
-        };
-      }
       if (Option.isSome(ElectronShell.parseSafeExternalUrl(url))) {
         void runPromise(electronShell.openExternal(url));
       }
