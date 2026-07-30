@@ -3,6 +3,7 @@ import { assert, describe, it } from "@effect/vitest";
 import {
   DesktopBackendPortUnavailableError,
   DesktopDevelopmentBackendPortRequiredError,
+  shouldUseHostedAppMode,
 } from "./DesktopApp.ts";
 
 describe("DesktopApp errors", () => {
@@ -26,5 +27,40 @@ describe("DesktopApp errors", () => {
     const error = new DesktopDevelopmentBackendPortRequiredError();
 
     assert.equal(error.message, "T3CODE_PORT is required in desktop development.");
+  });
+
+  it("uses the hosted app only for a packaged Linux app with the service installed", () => {
+    assert.isTrue(
+      shouldUseHostedAppMode({
+        platform: "linux",
+        isPackaged: true,
+        isDevelopment: false,
+        serviceUnitExists: true,
+      }),
+    );
+    assert.isFalse(
+      shouldUseHostedAppMode({
+        platform: "linux",
+        isPackaged: true,
+        isDevelopment: false,
+        serviceUnitExists: false,
+      }),
+    );
+    assert.isFalse(
+      shouldUseHostedAppMode({
+        platform: "darwin",
+        isPackaged: true,
+        isDevelopment: false,
+        serviceUnitExists: true,
+      }),
+    );
+    assert.isFalse(
+      shouldUseHostedAppMode({
+        platform: "linux",
+        isPackaged: false,
+        isDevelopment: true,
+        serviceUnitExists: true,
+      }),
+    );
   });
 });
