@@ -3,9 +3,12 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as NodeFsPromises from "node:fs/promises";
+import * as NodePath from "node:path";
 import * as NodeTimersPromises from "node:timers/promises";
 import * as Path from "effect/Path";
 import * as Mime from "effect/unstable/http/Mime";
+import { pathToFileURL } from "node:url";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
@@ -53,11 +56,16 @@ export class ElectronProtocolUnregistrationError extends Schema.TaggedError<Elec
 }
 
 // The scheme either proxies to a dev server (`targetOrigin`) or serves the
-// built client from disk (`assetDirectory`).
+// built client from disk (`assetDirectory`). When reusing the installed
+// background service the renderer files are served from `rendererRootPath`
+// instead of proxying to the service.
 export type DesktopProtocolRegistrationInput = {
   readonly scheme: string;
   readonly clerkFrontendApiHostname: string | undefined;
-} & ({ readonly targetOrigin: URL } | { readonly assetDirectory: string });
+} & (
+  | { readonly targetOrigin: URL; readonly rendererRootPath?: string }
+  | { readonly assetDirectory: string }
+);
 
 export class ElectronProtocol extends Context.Service<
   ElectronProtocol,
@@ -154,10 +162,18 @@ async function proxyRequest(
   request: Request,
   targetOrigin: URL,
   contentSecurityPolicy: string,
+  rendererRootPath?: string,
 ): Promise<Response> {
   const requestUrl = new URL(request.url);
   if (requestUrl.host !== DESKTOP_HOST) {
     return new Response(null, { status: 404 });
+  }
+
+  if (rendererRootPath) {
+    return withContentSecurityPolicy(
+      await serveRendererFile(request, requestUrl, rendererRootPath),
+      contentSecurityPolicy,
+    );
   }
 
   const targetUrl = new URL(`${requestUrl.pathname}${requestUrl.search}`, targetOrigin);
@@ -193,6 +209,63 @@ async function proxyRequest(
       ? await fetchWithTransientRetry(targetUrl.toString(), init)
       : await Electron.net.fetch(targetUrl.toString(), init);
   return withContentSecurityPolicy(response, contentSecurityPolicy);
+}
+
+async function serveRendererFile(
+  request: Request,
+  requestUrl: URL,
+  rendererRootPath: string,
+): Promise<Response> {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return new Response("Method Not Allowed", { status: 405 });
+  }
+
+  const rendererRoot = NodePath.resolve(rendererRootPath);
+  const requestPath = requestUrl.pathname === "/" ? "/index.html" : requestUrl.pathname;
+  const rawRelativePath = requestPath.replace(/^[/\\]+/u, "");
+  const relativePath = NodePath.normalize(rawRelativePath).replace(/^[/\\]+/u, "");
+  if (
+    relativePath.length === 0 ||
+    rawRelativePath.startsWith("..") ||
+    relativePath.startsWith("..") ||
+    relativePath.includes("\0")
+  ) {
+    return new Response("Invalid renderer file path", { status: 400 });
+  }
+
+  const isWithinRendererRoot = (candidate: string) =>
+    candidate === rendererRoot ||
+    candidate.startsWith(
+      rendererRoot.endsWith(NodePath.sep) ? rendererRoot : `${rendererRoot}${NodePath.sep}`,
+    );
+
+  let filePath = NodePath.resolve(rendererRoot, relativePath);
+  if (!isWithinRendererRoot(filePath)) {
+    return new Response("Invalid renderer file path", { status: 400 });
+  }
+
+  if (!NodePath.extname(filePath)) {
+    filePath = NodePath.resolve(filePath, "index.html");
+  }
+
+  const fileExists = async (candidate: string) => {
+    try {
+      return (await NodeFsPromises.stat(candidate)).isFile();
+    } catch {
+      return false;
+    }
+  };
+
+  if (!(await fileExists(filePath))) {
+    filePath = NodePath.resolve(rendererRoot, "index.html");
+  }
+  if (!isWithinRendererRoot(filePath) || !(await fileExists(filePath))) {
+    return new Response("Not Found", { status: 404 });
+  }
+
+  return Electron.net.fetch(pathToFileURL(filePath).toString(), {
+    method: request.method,
+  });
 }
 
 const TRANSIENT_FETCH_RETRY_DELAYS_MS = [0, 50, 150] as const;
@@ -278,7 +351,12 @@ export const make = Effect.gen(function* () {
                   contentSecurityPolicy,
                 );
               }
-              return proxyRequest(request, input.targetOrigin, contentSecurityPolicy);
+              return proxyRequest(
+                request,
+                input.targetOrigin,
+                contentSecurityPolicy,
+                input.rendererRootPath,
+              );
             });
           },
           catch: (cause) => new ElectronProtocolRegistrationError({ scheme: input.scheme, cause }),
