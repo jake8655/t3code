@@ -7,9 +7,11 @@ import * as Ref from "effect/Ref";
 
 import * as Electron from "electron";
 
+import { DEFAULT_HOSTED_APP_URL } from "@t3tools/shared/connectAuth";
 import * as DesktopAssets from "../app/DesktopAssets.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import { makeComponentLogger } from "../app/DesktopObservability.ts";
+import * as DesktopState from "../app/DesktopState.ts";
 import * as ElectronMenu from "../electron/ElectronMenu.ts";
 import { getDesktopUrl } from "../electron/ElectronProtocol.ts";
 import * as ElectronShell from "../electron/ElectronShell.ts";
@@ -43,6 +45,7 @@ type WindowTitleBarOptions = Pick<
 type DesktopWindowRuntimeServices =
   | DesktopEnvironment.DesktopEnvironment
   | DesktopAssets.DesktopAssets
+  | DesktopState.DesktopState
   | DesktopAppSettings.DesktopAppSettings
   | ElectronMenu.ElectronMenu
   | ElectronShell.ElectronShell
@@ -246,6 +249,7 @@ export const make = Effect.gen(function* () {
   const electronWindow = yield* ElectronWindow.ElectronWindow;
   const previewManager = yield* PreviewManager.PreviewManager;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
+  const state = yield* DesktopState.DesktopState;
   // Window-side latch for the primary backend's readiness. Set by
   // handleBackendReady (driven by the pool's onReady callback), cleared
   // by handleBackendNotReady (driven by onShutdown). Only consumed by
@@ -290,8 +294,13 @@ export const make = Effect.gen(function* () {
     Electron.BrowserWindow,
     DesktopWindowError
   > {
-    yield* previewManager.getBrowserSession();
-    const applicationUrl = getDesktopUrl(environment.isDevelopment);
+    const hostedAppMode = yield* Ref.get(state.hostedAppMode);
+    if (!hostedAppMode) {
+      yield* previewManager.getBrowserSession();
+    }
+    const applicationUrl = hostedAppMode
+      ? DEFAULT_HOSTED_APP_URL
+      : getDesktopUrl(environment.isDevelopment);
     const iconPaths = yield* assets.iconPaths;
     const iconOption = getIconOption(iconPaths, environment.platform);
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
@@ -330,12 +339,12 @@ export const make = Effect.gen(function* () {
       title: environment.displayName,
       ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
       webPreferences: {
-        preload: environment.preloadPath,
+        ...(hostedAppMode ? {} : { preload: environment.preloadPath }),
         backgroundThrottling: false,
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
-        webviewTag: true,
+        webviewTag: !hostedAppMode,
       },
     });
 
@@ -429,7 +438,9 @@ export const make = Effect.gen(function* () {
     );
     flushMainWindowBounds = flushBoundsPersist;
 
-    yield* previewManager.setMainWindow(window);
+    if (!hostedAppMode) {
+      yield* previewManager.setMainWindow(window);
+    }
     window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
       if (
         typeof params.partition !== "string" ||
@@ -640,7 +651,7 @@ export const make = Effect.gen(function* () {
     });
 
     loadApplication();
-    if (environment.isDevelopment) {
+    if (environment.isDevelopment && !hostedAppMode) {
       window.webContents.openDevTools({ mode: "detach" });
     }
 

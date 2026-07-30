@@ -1,10 +1,12 @@
 import * as Cause from "effect/Cause";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
 import * as NetService from "@t3tools/shared/Net";
+import { DEFAULT_HOSTED_APP_URL } from "@t3tools/shared/connectAuth";
 import * as Crypto from "effect/Crypto";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronDialog from "../electron/ElectronDialog.ts";
@@ -29,6 +31,21 @@ import * as DesktopWslBackend from "../wsl/DesktopWslBackend.ts";
 const DEFAULT_DESKTOP_BACKEND_PORT = 3773;
 const MAX_TCP_PORT = 65_535;
 const DESKTOP_BACKEND_PORT_PROBE_HOSTS = ["127.0.0.1", "0.0.0.0", "::"] as const;
+const BOOT_SERVICE_UNIT_FILE = "t3code.service";
+
+export function shouldUseHostedAppMode(input: {
+  readonly platform: NodeJS.Platform;
+  readonly isPackaged: boolean;
+  readonly isDevelopment: boolean;
+  readonly serviceUnitExists: boolean;
+}): boolean {
+  return (
+    input.platform === "linux" &&
+    input.isPackaged &&
+    !input.isDevelopment &&
+    input.serviceUnitExists
+  );
+}
 
 const makeDesktopRunId = Crypto.Crypto.pipe(
   Effect.flatMap((crypto) => crypto.randomUUIDv4),
@@ -137,15 +154,44 @@ const fatalStartupCause = <E>(stage: string, cause: Cause.Cause<E>) =>
   handleFatalStartupError(stage, Cause.pretty(cause)).pipe(Effect.andThen(Effect.failCause(cause)));
 
 const bootstrap = Effect.gen(function* () {
-  const pool = yield* DesktopBackendPool.DesktopBackendPool;
-  const primaryBackend = yield* pool.primary;
   const state = yield* DesktopState.DesktopState;
   const environment = yield* DesktopEnvironment.DesktopEnvironment;
+  const desktopWindow = yield* DesktopWindow.DesktopWindow;
+  yield* logBootstrapInfo("bootstrap start");
+
+  const fs = yield* FileSystem.FileSystem;
+  const serviceUnitPath = environment.path.join(
+    environment.appDataDirectory,
+    "systemd",
+    "user",
+    BOOT_SERVICE_UNIT_FILE,
+  );
+  const serviceUnitExists = yield* fs
+    .exists(serviceUnitPath)
+    .pipe(Effect.orElseSucceed(() => false));
+  if (
+    shouldUseHostedAppMode({
+      platform: environment.platform,
+      isPackaged: environment.isPackaged,
+      isDevelopment: environment.isDevelopment,
+      serviceUnitExists,
+    })
+  ) {
+    yield* logBootstrapInfo("bootstrap using hosted app with installed background service", {
+      serviceUnitPath,
+    });
+    if (!(yield* Ref.get(state.quitting))) {
+      yield* Ref.set(state.hostedAppMode, true);
+      yield* desktopWindow.handleBackendReady(new URL(DEFAULT_HOSTED_APP_URL));
+    }
+    return;
+  }
+
+  const pool = yield* DesktopBackendPool.DesktopBackendPool;
+  const primaryBackend = yield* pool.primary;
   const desktopSettings = yield* DesktopAppSettings.DesktopAppSettings;
   const serverExposure = yield* DesktopServerExposure.DesktopServerExposure;
   const wslBackend = yield* DesktopWslBackend.DesktopWslBackend;
-  const desktopWindow = yield* DesktopWindow.DesktopWindow;
-  yield* logBootstrapInfo("bootstrap start");
 
   if (environment.isDevelopment && Option.isNone(environment.configuredBackendPort)) {
     return yield* new DesktopDevelopmentBackendPortRequiredError();
