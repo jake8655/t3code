@@ -236,6 +236,7 @@ function layerTest(input: {
   readonly previewZoomReapplies?: number[];
   readonly onReveal?: (window: Electron.BrowserWindow) => void;
   readonly focusedWindow?: Electron.BrowserWindow;
+  readonly hostedAppMode?: boolean;
 }) {
   let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
   const layerDesktopAppSettings = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
@@ -295,6 +296,14 @@ function layerTest(input: {
     destroyAll: input.destroyAll ?? Effect.void,
     syncAllAppearance: (sync) => sync(input.window),
   } satisfies ElectronWindow.ElectronWindow["Service"]);
+  const desktopStateLayer = Layer.effect(
+    DesktopState.DesktopState,
+    Effect.all({
+      backendReady: Ref.make(false),
+      hostedAppMode: Ref.make(input.hostedAppMode ?? false),
+      quitting: Ref.make(false),
+    }),
+  );
 
   return DesktopWindow.layer.pipe(
     Layer.provide(
@@ -309,7 +318,7 @@ function layerTest(input: {
         layerDesktopAppSettings,
         layerDesktopClientSettings,
         layerDesktopServerExposure,
-        DesktopState.layer,
+        desktopStateLayer,
         layerElectronApp,
         Layer.succeed(ElectronMenu.ElectronMenu, {
           setApplicationMenu: () => Effect.void,
@@ -432,6 +441,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           layerDesktopServerExposure,
           DesktopState.layer,
           layerElectronApp,
+          DesktopState.layer,
           layerElectronMenu,
           Layer.succeed(ElectronShell.ElectronShell, {
             openExternal: () => Effect.succeed(true),
@@ -763,6 +773,93 @@ describe("DesktopWindow", () => {
         assert.equal(popup.reload.mock.calls.length, 0);
         assert.equal(popup.reloadIgnoringCache.mock.calls.length, 0);
         assert.equal(popup.toggleDevTools.mock.calls.length, 0);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("keeps macOS window buttons centered when zooming and leaving fullscreen", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const layer = layerTest({ window: fakeWindow.window, createCount, mainWindow });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+
+        for (const direction of ["in", "in", "out", "reset", "out"] as const) {
+          yield* desktopWindow.zoomMain(direction);
+          const position = fakeWindow.setWindowButtonPosition.mock.lastCall?.[0];
+          assert.isDefined(position);
+          const headerCenter = 26 * fakeWindow.window.webContents.getZoomFactor();
+          assert.isAtMost(Math.abs(position.y + 7 - headerCenter), 0.5);
+          assert.equal(position.x, 16);
+        }
+
+        fakeWindow.isFullScreen.mockReturnValue(true);
+        fakeWindow.setWindowButtonPosition.mockClear();
+        yield* desktopWindow.zoomMain("reset");
+        assert.equal(fakeWindow.setWindowButtonPosition.mock.calls.length, 0);
+
+        fakeWindow.isFullScreen.mockReturnValue(false);
+        fakeWindow.windowListeners.get("leave-full-screen")?.();
+        assert.deepEqual(fakeWindow.setWindowButtonPosition.mock.lastCall, [{ x: 16, y: 19 }]);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+
+  it.effect("opens the hosted app without exposing desktop preload APIs", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+      const layer = layerTest({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        createdWindowOptions,
+        hostedAppMode: true,
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady(new URL("https://app.t3.codes"));
+
+        assert.equal(yield* Ref.get(createCount), 1);
+        assert.deepEqual(fakeWindow.loadURL.mock.calls[0], ["https://app.t3.codes"]);
+        assert.isUndefined(createdWindowOptions[0]?.webPreferences?.preload);
+        assert.isFalse(createdWindowOptions[0]?.webPreferences?.webviewTag);
+        assert.equal(fakeWindow.openDevTools.mock.calls.length, 0);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
+  it.effect("uses the persisted main window bounds when opening the window", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+      const layer = layerTest({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        createdWindowOptions,
+        desktopSettings: {
+          ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+          mainWindowBounds: { x: 120, y: 80, width: 1320, height: 880 },
+        },
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady(new URL("http://127.0.0.1:3773"));
+
+        assert.equal(createdWindowOptions[0]?.width, 1320);
+        assert.equal(createdWindowOptions[0]?.height, 880);
+        assert.equal(createdWindowOptions[0]?.x, 120);
+        assert.equal(createdWindowOptions[0]?.y, 80);
       }).pipe(Effect.provide(layer));
     }),
   );

@@ -16,6 +16,7 @@ export class DesktopState extends Context.Service<
   DesktopState,
   {
     readonly backendReady: Ref.Ref<boolean>;
+    readonly hostedAppMode: Ref.Ref<boolean>;
     readonly quitting: Ref.Ref<boolean>;
     readonly primaryBackendStartup: SubscriptionRef.SubscriptionRef<PrimaryBackendStartup>;
   }
@@ -23,6 +24,7 @@ export class DesktopState extends Context.Service<
 
 const make = Effect.all({
   backendReady: Ref.make(false),
+  hostedAppMode: Ref.make(false),
   quitting: Ref.make(false),
   primaryBackendStartup: SubscriptionRef.make<PrimaryBackendStartup>({ _tag: "Starting" }),
 });
