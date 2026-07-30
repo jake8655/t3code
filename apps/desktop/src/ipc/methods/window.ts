@@ -14,11 +14,14 @@ import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Effect from "effect/Effect";
 import * as Option from "effect/Option";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
+import * as DesktopBackgroundService from "../../app/DesktopBackgroundService.ts";
 import * as DesktopBackendPool from "../../backend/DesktopBackendPool.ts";
 import * as DesktopLocalEnvironmentAuth from "../../backend/DesktopLocalEnvironmentAuth.ts";
 import * as DesktopEnvironment from "../../app/DesktopEnvironment.ts";
+import * as DesktopState from "../../app/DesktopState.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
 import * as DesktopWslBackend from "../../wsl/DesktopWslBackend.ts";
 import * as DesktopWslEnvironment from "../../wsl/DesktopWslEnvironment.ts";
@@ -74,6 +77,19 @@ export const getLocalEnvironmentBootstraps = DesktopIpc.makeSyncIpcMethod({
   channel: IpcChannels.GET_LOCAL_ENVIRONMENT_BOOTSTRAPS_CHANNEL,
   result: Schema.Array(DesktopEnvironmentBootstrapSchema),
   handler: Effect.fn("desktop.ipc.window.getLocalEnvironmentBootstraps")(function* () {
+    const state = yield* DesktopState.DesktopState;
+    if (yield* Ref.get(state.hostedAppMode)) {
+      return [
+        {
+          id: PRIMARY_LOCAL_ENVIRONMENT_ID,
+          label: "Local",
+          runningDistro: null,
+          httpBaseUrl: DesktopBackgroundService.HTTP_BASE_URL,
+          wsBaseUrl: DesktopBackgroundService.WS_BASE_URL,
+        },
+      ];
+    }
+
     const pool = yield* DesktopBackendPool.DesktopBackendPool;
     const instances = yield* pool.list;
     const bootstraps: DesktopEnvironmentBootstrap[] = [];

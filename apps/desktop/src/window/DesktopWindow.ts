@@ -10,6 +10,7 @@ import * as Electron from "electron";
 
 import { DEFAULT_HOSTED_APP_URL } from "@t3tools/shared/connectAuth";
 import * as DesktopAssets from "../app/DesktopAssets.ts";
+import * as DesktopBackgroundService from "../app/DesktopBackgroundService.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import { makeComponentLogger } from "../app/DesktopObservability.ts";
 import * as DesktopState from "../app/DesktopState.ts";
@@ -271,6 +272,7 @@ export const make = Effect.gen(function* () {
   // createMainIfBackendReady, which gates the post-readiness window
   // open in development and the macOS "activate without windows" path.
   const backendReadyRef = yield* Ref.make(false);
+  const hostedAppUrlRef = yield* Ref.make(DEFAULT_HOSTED_APP_URL);
   // The transient "Connecting to WSL" splash window, tracked separately so it
   // is never mistaken for the real main window.
   const splashWindowRef = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
@@ -310,12 +312,17 @@ export const make = Effect.gen(function* () {
     DesktopWindowError
   > {
     const hostedAppMode = yield* Ref.get(state.hostedAppMode);
-    if (!hostedAppMode) {
+    const hostedAppUrl = yield* Ref.get(hostedAppUrlRef);
+    const backgroundServiceMode =
+      hostedAppMode && hostedAppUrl === DesktopBackgroundService.HTTP_BASE_URL;
+    const applicationUrl =
+      hostedAppMode && !backgroundServiceMode
+        ? hostedAppUrl
+        : getDesktopUrl(environment.isDevelopment);
+    const desktopIntegrationEnabled = !hostedAppMode || backgroundServiceMode;
+    if (desktopIntegrationEnabled) {
       yield* previewManager.getBrowserSession();
     }
-    const applicationUrl = hostedAppMode
-      ? DEFAULT_HOSTED_APP_URL
-      : getDesktopUrl(environment.isDevelopment);
     const iconPaths = yield* assets.iconPaths;
     const iconOption = getIconOption(iconPaths, environment.platform);
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
@@ -354,12 +361,12 @@ export const make = Effect.gen(function* () {
       title: environment.displayName,
       ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
       webPreferences: {
-        ...(hostedAppMode ? {} : { preload: environment.preloadPath }),
+        ...(desktopIntegrationEnabled ? { preload: environment.preloadPath } : {}),
         backgroundThrottling: false,
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
-        webviewTag: !hostedAppMode,
+        webviewTag: desktopIntegrationEnabled,
       },
     });
 
@@ -453,7 +460,7 @@ export const make = Effect.gen(function* () {
     );
     flushMainWindowBounds = flushBoundsPersist;
 
-    if (!hostedAppMode) {
+    if (desktopIntegrationEnabled) {
       yield* previewManager.setMainWindow(window);
     }
     window.webContents.on("will-attach-webview", (event, webPreferences, params) => {
@@ -637,7 +644,7 @@ export const make = Effect.gen(function* () {
           return;
         }
         const retryInMs =
-          environment.isDevelopment &&
+          (environment.isDevelopment || backgroundServiceMode) &&
           isRetryableDevelopmentRendererLoadFailure({
             applicationUrl,
             errorCode,
@@ -824,6 +831,9 @@ export const make = Effect.gen(function* () {
     createMainIfBackendReady,
     showConnectingSplash,
     handleBackendReady: Effect.fn("desktop.window.handleBackendReady")(function* (httpBaseUrl) {
+      if (yield* Ref.get(state.hostedAppMode)) {
+        yield* Ref.set(hostedAppUrlRef, httpBaseUrl.href);
+      }
       yield* Ref.set(backendReadyRef, true);
       yield* logWindowInfo("backend ready", { source: "http", url: httpBaseUrl.href });
       yield* createMainIfBackendReady;
