@@ -13,8 +13,12 @@ import * as Ref from "effect/Ref";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
+import * as FileSystem from "effect/FileSystem";
 import * as HttpClient from "effect/http/HttpClient";
 
+import * as DesktopBackgroundService from "../app/DesktopBackgroundService.ts";
+import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
+import * as DesktopState from "../app/DesktopState.ts";
 import * as DesktopBackendPool from "./DesktopBackendPool.ts";
 
 const BOOTSTRAP_TRANSIENT_RETRY_TIMEOUT = Duration.seconds(15);
@@ -69,6 +73,9 @@ export const make = Effect.gen(function* () {
   const pool = yield* DesktopBackendPool.DesktopBackendPool;
   const httpClient = yield* HttpClient.HttpClient;
   const mac = yield* Mac.Mac;
+  const fileSystem = yield* FileSystem.FileSystem;
+  const environment = yield* DesktopEnvironment.DesktopEnvironment;
+  const state = yield* DesktopState.DesktopState;
   const tokenRef = yield* Ref.make(Option.none<string>());
   const mutex = yield* Semaphore.make(1);
 
@@ -78,6 +85,24 @@ export const make = Effect.gen(function* () {
         const cached = yield* Ref.get(tokenRef);
         if (Option.isSome(cached)) {
           return cached.value;
+        }
+
+        if (yield* Ref.get(state.hostedAppMode)) {
+          const tokenPath = environment.path.join(
+            environment.stateDir,
+            DesktopBackgroundService.BEARER_TOKEN_FILE_NAME,
+          );
+          const token = yield* fileSystem.readFileString(tokenPath).pipe(
+            Effect.map((value) => value.trim()),
+            Effect.mapError(
+              (cause) => new DesktopLocalEnvironmentAuthSessionBootstrapError({ cause }),
+            ),
+          );
+          if (token.length === 0) {
+            return yield* new DesktopLocalEnvironmentAuthBackendNotConfiguredError();
+          }
+          yield* Ref.set(tokenRef, Option.some(token));
+          return token;
         }
 
         const instances = yield* pool.list;

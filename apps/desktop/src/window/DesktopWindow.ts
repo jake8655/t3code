@@ -13,6 +13,7 @@ import * as Electron from "electron";
 import { type DesktopSnapShotEvent, DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts";
 import { DEFAULT_HOSTED_APP_URL } from "@t3tools/shared/connectAuth";
 import * as DesktopAssets from "../app/DesktopAssets.ts";
+import * as DesktopBackgroundService from "../app/DesktopBackgroundService.ts";
 import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
 import { makeComponentLogger } from "../app/DesktopObservability.ts";
 import * as DesktopState from "../app/DesktopState.ts";
@@ -376,12 +377,17 @@ export const make = Effect.gen(function* () {
   > {
     if (yield* Ref.get(desktopState.quitting)) return Option.none();
     const hostedAppMode = yield* Ref.get(state.hostedAppMode);
-    if (!hostedAppMode) {
+    const hostedAppUrl = yield* Ref.get(hostedAppUrlRef);
+    const backgroundServiceMode =
+      hostedAppMode && hostedAppUrl === DesktopBackgroundService.HTTP_BASE_URL;
+    const applicationUrl =
+      hostedAppMode && !backgroundServiceMode
+        ? hostedAppUrl
+        : getDesktopUrl(environment.isDevelopment);
+    const desktopIntegrationEnabled = !hostedAppMode || backgroundServiceMode;
+    if (desktopIntegrationEnabled) {
       yield* previewManager.getBrowserSession();
     }
-    const applicationUrl = hostedAppMode
-      ? DEFAULT_HOSTED_APP_URL
-      : getDesktopUrl(environment.isDevelopment);
     const iconPaths = yield* assets.iconPaths;
     const iconOption = getIconOption(iconPaths, environment.platform);
     const shouldUseDarkColors = yield* electronTheme.shouldUseDarkColors;
@@ -421,7 +427,7 @@ export const make = Effect.gen(function* () {
       title: environment.displayName,
       ...getWindowTitleBarOptions(shouldUseDarkColors, environment.platform),
       webPreferences: {
-        ...(hostedAppMode ? {} : { preload: environment.preloadPath }),
+        ...(desktopIntegrationEnabled ? { preload: environment.preloadPath } : {}),
         // The window boots hidden (show: false until ready-to-show), and
         // Chromium throttles hidden renderers: timers coalesce and rAF stops,
         // which stalls first paint. Boot unthrottled; the first-reveal trigger
@@ -431,7 +437,7 @@ export const make = Effect.gen(function* () {
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
-        webviewTag: !hostedAppMode,
+        webviewTag: desktopIntegrationEnabled,
         // A preview guest's fullscreen request is mirrored onto this embedder,
         // which would otherwise put the whole window into OS fullscreen. With
         // both sides opted out the page fills its webview and the window stays.
@@ -535,7 +541,7 @@ export const make = Effect.gen(function* () {
     );
     flushMainWindowBounds = flushBoundsPersist;
 
-<    if (!hostedAppMode) {
+    if (desktopIntegrationEnabled) {
       yield* previewManager.setMainWindow(window);
     }
     if (yield* Ref.get(desktopState.quitting)) {
@@ -805,7 +811,7 @@ export const make = Effect.gen(function* () {
           return;
         }
         const retryInMs =
-          environment.isDevelopment &&
+          (environment.isDevelopment || backgroundServiceMode) &&
           isRetryableDevelopmentRendererLoadFailure({
             applicationUrl,
             errorCode,
@@ -1052,7 +1058,9 @@ export const make = Effect.gen(function* () {
     createMainIfBackendReady,
     showConnectingSplash,
     handleBackendReady: Effect.fn("desktop.window.handleBackendReady")(function* (httpBaseUrl) {
-      backendHasStarted = true;
+      if (yield* Ref.get(state.hostedAppMode)) {
+        yield* Ref.set(hostedAppUrlRef, httpBaseUrl.href);
+      }
       yield* Ref.set(backendReadyRef, true);
       yield* logWindowInfo("backend ready", { source: "http", url: httpBaseUrl.href });
       if (!mainClosedDuringStartup) yield* createMainIfBackendReady;
