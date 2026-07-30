@@ -3,8 +3,11 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
+import * as NodeFsPromises from "node:fs/promises";
+import * as NodePath from "node:path";
 import * as Path from "effect/Path";
 import * as Mime from "effect/http/Mime";
+import { pathToFileURL } from "node:url";
 import * as Ref from "effect/Ref";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
@@ -52,10 +55,17 @@ export class ElectronProtocolUnregistrationError extends Schema.TaggedError<Elec
   }
 }
 
+// The scheme either proxies to a dev server (`targetOrigin`) or serves the
+// built client from disk (`assetDirectory`). When reusing the installed
+// background service the renderer files are served from `rendererRootPath`
+// instead of proxying to the service.
 export type DesktopProtocolRegistrationInput = {
   readonly scheme: string;
   readonly clerkFrontendApiHostname: string | undefined;
-} & ({ readonly targetOrigin: URL } | { readonly assetDirectory: string });
+} & (
+  | { readonly targetOrigin: URL; readonly rendererRootPath?: string }
+  | { readonly assetDirectory: string }
+);
 
 export class ElectronProtocol extends Context.Service<
   ElectronProtocol,
@@ -167,10 +177,18 @@ const proxyRequest = Effect.fn("desktop.protocol.proxyRequest")(function* (
   request: Request,
   targetOrigin: URL,
   contentSecurityPolicy: string,
+  rendererRootPath?: string,
 ) {
   const requestUrl = new URL(request.url);
   if (requestUrl.host !== DESKTOP_HOST) {
     return new Response(null, { status: 404 });
+  }
+
+  if (rendererRootPath) {
+    return withContentSecurityPolicy(
+      yield* Effect.promise(() => serveRendererFile(request, requestUrl, rendererRootPath)),
+      contentSecurityPolicy,
+    );
   }
 
   const targetUrl = new URL(`${requestUrl.pathname}${requestUrl.search}`, targetOrigin);
@@ -208,6 +226,66 @@ const proxyRequest = Effect.fn("desktop.protocol.proxyRequest")(function* (
   return withContentSecurityPolicy(response, contentSecurityPolicy);
 });
 
+async function serveRendererFile(
+  request: Request,
+  requestUrl: URL,
+  rendererRootPath: string,
+): Promise<Response> {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    return new Response("Method Not Allowed", { status: 405 });
+  }
+
+  const rendererRoot = NodePath.resolve(rendererRootPath);
+  const requestPath = requestUrl.pathname === "/" ? "/index.html" : requestUrl.pathname;
+  const rawRelativePath = requestPath.replace(/^[/\\]+/u, "");
+  const relativePath = NodePath.normalize(rawRelativePath).replace(/^[/\\]+/u, "");
+  if (
+    relativePath.length === 0 ||
+    rawRelativePath.startsWith("..") ||
+    relativePath.startsWith("..") ||
+    relativePath.includes("\0")
+  ) {
+    return new Response("Invalid renderer file path", { status: 400 });
+  }
+
+  const isWithinRendererRoot = (candidate: string) =>
+    candidate === rendererRoot ||
+    candidate.startsWith(
+      rendererRoot.endsWith(NodePath.sep) ? rendererRoot : `${rendererRoot}${NodePath.sep}`,
+    );
+
+  let filePath = NodePath.resolve(rendererRoot, relativePath);
+  if (!isWithinRendererRoot(filePath)) {
+    return new Response("Invalid renderer file path", { status: 400 });
+  }
+
+  if (!NodePath.extname(filePath)) {
+    filePath = NodePath.resolve(filePath, "index.html");
+  }
+
+  const fileExists = async (candidate: string) => {
+    try {
+      return (await NodeFsPromises.stat(candidate)).isFile();
+    } catch {
+      return false;
+    }
+  };
+
+  if (!(await fileExists(filePath))) {
+    filePath = NodePath.resolve(rendererRoot, "index.html");
+  }
+  if (!isWithinRendererRoot(filePath) || !(await fileExists(filePath))) {
+    return new Response("Not Found", { status: 404 });
+  }
+
+  return Electron.net.fetch(pathToFileURL(filePath).toString(), {
+    method: request.method,
+  });
+}
+
+// Serves the packaged web client without a backend: files resolve within the
+// asset directory, and any other path falls back to index.html so the SPA
+// router handles it, except for asset-shaped misses (`/missing.js`) which 404.
 const serveDesktopAsset = Effect.fn("desktop.protocol.serveAsset")(function* (
   request: Request,
   assetDirectory: string,
@@ -269,7 +347,12 @@ export const make = Effect.gen(function* () {
                 );
               }
               return runPromise(
-                proxyRequest(request, input.targetOrigin, contentSecurityPolicy).pipe(
+                proxyRequest(
+                  request,
+                  input.targetOrigin,
+                  contentSecurityPolicy,
+                  input.rendererRootPath,
+                ).pipe(
                   Effect.catchTags({
                     ElectronProtocolFetchError: (error) => Effect.die(error.cause),
                   }),
