@@ -209,6 +209,7 @@ function makeTestLayer(input: {
   ) => Effect.Effect<void>;
   readonly openedExternalUrls?: unknown[];
   readonly previewZoomReapplies?: number[];
+  readonly hostedAppMode?: boolean;
 }) {
   let desktopSettings = input.desktopSettings ?? DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS;
   const desktopAppSettingsLayer = Layer.succeed(DesktopAppSettings.DesktopAppSettings, {
@@ -262,6 +263,14 @@ function makeTestLayer(input: {
     destroyAll: Effect.void,
     syncAllAppearance: (sync) => sync(input.window),
   } satisfies ElectronWindow.ElectronWindow["Service"]);
+  const desktopStateLayer = Layer.effect(
+    DesktopState.DesktopState,
+    Effect.all({
+      backendReady: Ref.make(false),
+      hostedAppMode: Ref.make(input.hostedAppMode ?? false),
+      quitting: Ref.make(false),
+    }),
+  );
 
   return DesktopWindow.layer.pipe(
     Layer.provide(
@@ -271,7 +280,7 @@ function makeTestLayer(input: {
         desktopAppSettingsLayer,
         desktopClientSettingsLayer,
         desktopServerExposureLayer,
-        DesktopState.layer,
+        desktopStateLayer,
         electronAppLayer,
         electronMenuLayer,
         Layer.succeed(ElectronShell.ElectronShell, {
@@ -377,6 +386,7 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           desktopClientSettingsLayer,
           desktopServerExposureLayer,
           electronAppLayer,
+          DesktopState.layer,
           electronMenuLayer,
           Layer.succeed(ElectronShell.ElectronShell, {
             openExternal: () => Effect.succeed(true),
@@ -569,6 +579,32 @@ describe("DesktopWindow", () => {
     }),
   );
 
+  it.effect("opens the hosted app without exposing desktop preload APIs", () =>
+    Effect.gen(function* () {
+      const fakeWindow = makeFakeBrowserWindow();
+      const createCount = yield* Ref.make(0);
+      const mainWindow = yield* Ref.make<Option.Option<Electron.BrowserWindow>>(Option.none());
+      const createdWindowOptions: Electron.BrowserWindowConstructorOptions[] = [];
+      const layer = makeTestLayer({
+        window: fakeWindow.window,
+        createCount,
+        mainWindow,
+        createdWindowOptions,
+        hostedAppMode: true,
+      });
+
+      yield* Effect.gen(function* () {
+        const desktopWindow = yield* DesktopWindow.DesktopWindow;
+        yield* desktopWindow.handleBackendReady(new URL("https://app.t3.codes"));
+
+        assert.equal(yield* Ref.get(createCount), 1);
+        assert.deepEqual(fakeWindow.loadURL.mock.calls[0], ["https://app.t3.codes"]);
+        assert.isUndefined(createdWindowOptions[0]?.webPreferences?.preload);
+        assert.isFalse(createdWindowOptions[0]?.webPreferences?.webviewTag);
+        assert.equal(fakeWindow.openDevTools.mock.calls.length, 0);
+      }).pipe(Effect.provide(layer));
+    }),
+  );
   it.effect("uses the persisted main window bounds when opening the window", () =>
     Effect.gen(function* () {
       const fakeWindow = makeFakeBrowserWindow();
