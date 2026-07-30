@@ -6,13 +6,13 @@ import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 
 import * as NetService from "@t3tools/shared/Net";
-import { DEFAULT_HOSTED_APP_URL } from "@t3tools/shared/connectAuth";
 import * as Crypto from "effect/Crypto";
 import * as ElectronApp from "../electron/ElectronApp.ts";
 import * as ElectronDialog from "../electron/ElectronDialog.ts";
 import * as ElectronProtocol from "../electron/ElectronProtocol.ts";
 import { installDesktopIpcHandlers } from "../ipc/DesktopIpcHandlers.ts";
 import * as DesktopAppIdentity from "./DesktopAppIdentity.ts";
+import * as DesktopBackgroundService from "./DesktopBackgroundService.ts";
 import * as DesktopClerk from "./DesktopClerk.ts";
 import * as DesktopApplicationMenu from "../window/DesktopApplicationMenu.ts";
 import * as DesktopWindow from "../window/DesktopWindow.ts";
@@ -177,12 +177,22 @@ const bootstrap = Effect.gen(function* () {
       serviceUnitExists,
     })
   ) {
-    yield* logBootstrapInfo("bootstrap using hosted app with installed background service", {
+    yield* logBootstrapInfo("bootstrap using installed background service", {
       serviceUnitPath,
     });
+    const localServiceUrl = new URL(DesktopBackgroundService.HTTP_BASE_URL);
+    const electronProtocol = yield* ElectronProtocol.ElectronProtocol;
+    yield* electronProtocol.registerDesktopProtocol({
+      scheme: ElectronProtocol.getDesktopScheme(environment.isDevelopment),
+      targetOrigin: localServiceUrl,
+      backendOrigin: localServiceUrl,
+      rendererRootPath: environment.path.join(environment.appRoot, "apps/server/dist/client"),
+      clerkFrontendApiHostname: DesktopClerk.desktopClerkFrontendApiHostname,
+    });
+    yield* installDesktopIpcHandlers();
     if (!(yield* Ref.get(state.quitting))) {
       yield* Ref.set(state.hostedAppMode, true);
-      yield* desktopWindow.handleBackendReady(new URL(DEFAULT_HOSTED_APP_URL));
+      yield* desktopWindow.handleBackendReady(localServiceUrl);
     }
     return;
   }
