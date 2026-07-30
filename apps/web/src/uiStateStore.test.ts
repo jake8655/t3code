@@ -14,6 +14,7 @@ import {
   setDefaultAdvertisedEndpointKey,
   setProjectExpanded,
   setSidebarProjectScopeKey,
+  setSidebarV2SettledShelfExpanded,
   setThreadChangedFilesExpanded,
   type UiState,
 } from "./uiStateStore";
@@ -23,6 +24,7 @@ function makeUiState(overrides: Partial<UiState> = {}): UiState {
     projectExpandedById: {},
     projectOrder: [],
     sidebarProjectScopeKey: null,
+    sidebarV2SettledShelfExpanded: true,
     threadLastVisitedAtById: {},
     threadChangedFilesExpandedById: {},
     defaultAdvertisedEndpointKey: null,
@@ -147,7 +149,6 @@ describe("uiStateStore pure functions", () => {
       defaultAdvertisedEndpointKey: null,
     });
   });
-
   it("stores the sidebar project scope and resets it to all projects", () => {
     const scoped = setSidebarProjectScopeKey(makeUiState(), "github.com/pingdotgg/t3code");
 
@@ -155,6 +156,16 @@ describe("uiStateStore pure functions", () => {
     expect(setSidebarProjectScopeKey(scoped, "github.com/pingdotgg/t3code")).toBe(scoped);
     expect(setSidebarProjectScopeKey(scoped, null).sidebarProjectScopeKey).toBeNull();
     expect(setSidebarProjectScopeKey(scoped, "").sidebarProjectScopeKey).toBeNull();
+  });
+
+  it("stores the settled shelf expansion choice", () => {
+    const collapsed = setSidebarV2SettledShelfExpanded(makeUiState(), false);
+
+    expect(collapsed.sidebarV2SettledShelfExpanded).toBe(false);
+    expect(setSidebarV2SettledShelfExpanded(collapsed, false)).toBe(collapsed);
+    expect(setSidebarV2SettledShelfExpanded(collapsed, true).sidebarV2SettledShelfExpanded).toBe(
+      true,
+    );
   });
 });
 
@@ -178,6 +189,7 @@ describe("parsePersistedState", () => {
         invalid: "no" as unknown as boolean,
       },
       projectOrder: ["physical-b", "", "physical-a", "physical-b"],
+      sidebarV2SettledShelfExpanded: false,
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
         invalid: "not-a-date",
@@ -197,6 +209,7 @@ describe("parsePersistedState", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
+      sidebarV2SettledShelfExpanded: false,
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
@@ -223,6 +236,7 @@ describe("parsePersistedState", () => {
     });
 
     expect(parsed.threadChangedFilesExpandedById).toEqual({});
+    expect(parsed.sidebarV2SettledShelfExpanded).toBe(true);
   });
 
   it("migrates legacy CWD project preferences into local alias keys", () => {
@@ -297,6 +311,7 @@ describe("uiStateStore persistence", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
+      sidebarV2SettledShelfExpanded: false,
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
@@ -319,6 +334,7 @@ describe("uiStateStore persistence", () => {
         logical: false,
       },
       projectOrder: ["physical-b", "physical-a"],
+      sidebarV2SettledShelfExpanded: false,
       threadLastVisitedAtById: {
         "environment:thread-1": "2026-02-25T12:35:00.000Z",
       },
