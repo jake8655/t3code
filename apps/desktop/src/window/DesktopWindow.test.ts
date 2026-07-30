@@ -116,6 +116,7 @@ function makeFakeBrowserWindow() {
     openDevTools: webContents.openDevTools,
     reload: webContents.reload,
     send: webContents.send,
+    setWindowOpenHandler: webContents.setWindowOpenHandler,
     setAutoHideCursor: window.setAutoHideCursor,
     webContentsListeners,
     windowListeners,
@@ -471,6 +472,27 @@ describe("DesktopWindow", () => {
         assert.isUndefined(createdWindowOptions[0]?.webPreferences?.preload);
         assert.isFalse(createdWindowOptions[0]?.webPreferences?.webviewTag);
         assert.equal(fakeWindow.openDevTools.mock.calls.length, 0);
+
+        const openWindowHandler = fakeWindow.setWindowOpenHandler.mock.calls[0]?.[0];
+        if (!openWindowHandler) {
+          return yield* Effect.die("window-open handler was not registered");
+        }
+        assert.deepEqual(
+          openWindowHandler({
+            url: "https://clerk.t3.codes/v1/oauth_callback",
+          }),
+          {
+            action: "allow",
+            overrideBrowserWindowOptions: {
+              webPreferences: {
+                contextIsolation: true,
+                nodeIntegration: false,
+                sandbox: true,
+                webviewTag: false,
+              },
+            },
+          },
+        );
       }).pipe(Effect.provide(layer));
     }),
   );
