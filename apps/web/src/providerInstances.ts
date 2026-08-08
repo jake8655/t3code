@@ -19,6 +19,7 @@ import {
 } from "@t3tools/client-runtime/state/provider-instance-display";
 
 export { normalizeProviderAccentColor, shouldShowInstanceBadge };
+import { getClientProviderModels } from "./providerModels";
 
 /** Placeholder for untargetable drafts. Never persist or dispatch it; disable send until replaced. */
 export const NO_PROVIDER_MODEL_SELECTION: ModelSelection = {
@@ -75,7 +76,7 @@ export function deriveProviderInstanceEntries(
       isDefault,
       isAvailable: snapshot.availability !== "unavailable",
       snapshot,
-      models: snapshot.models,
+      models: getClientProviderModels(snapshot),
     } satisfies ProviderInstanceEntry;
   });
 }
