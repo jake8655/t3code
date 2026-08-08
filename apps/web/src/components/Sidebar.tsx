@@ -1932,8 +1932,12 @@ export default function Sidebar() {
     () => setSettledVisibleCount((count) => count + SETTLED_TAIL_PAGE_COUNT),
     [],
   );
-  const [settledShelfExpanded, setSettledShelfExpanded] = useState(true);
-  const toggleSettledShelf = useCallback(() => setSettledShelfExpanded((value) => !value), []);
+  const settledShelfExpanded = useUiStateStore((s) => s.sidebarSettledShelfExpanded);
+  const setSettledShelfExpanded = useUiStateStore((s) => s.setSidebarSettledShelfExpanded);
+  const toggleSettledShelf = useCallback(
+    () => setSettledShelfExpanded(!settledShelfExpanded),
+    [settledShelfExpanded],
+  );
   const renderedSettledThreads = useMemo(() => {
     if (settledShelfExpanded) return visibleSettledThreads;
     if (routeThreadKey === null) return [];
