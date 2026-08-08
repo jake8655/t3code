@@ -31,6 +31,7 @@ import {
 } from "@t3tools/client-runtime/state/provider-instance-display";
 
 export { normalizeProviderAccentColor, shouldShowInstanceBadge };
+import { getClientProviderModels } from "./providerModels";
 
 /**
  * Local-only placeholder used while a draft has no provider it can safely
@@ -136,7 +137,7 @@ export function deriveProviderInstanceEntries(
       isDefault,
       isAvailable: snapshot.availability !== "unavailable",
       snapshot,
-      models: snapshot.models,
+      models: getClientProviderModels(snapshot),
     } satisfies ProviderInstanceEntry;
   });
 }

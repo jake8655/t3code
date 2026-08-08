@@ -576,6 +576,7 @@ import {
   ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
   recallableComposerPrompt,
 } from "./chat/composerPromptHistory";
+import { encodeClaudeGatewayModelSelection } from "../providerModels";
 
 const EMPTY_PROVIDERS: ServerProvider[] = [];
 const EMPTY_PROVIDER_MODELS: ServerProvider["models"] = [];
@@ -9258,7 +9259,10 @@ export default function ChatView(props: ChatViewProps) {
               return { context };
             })(),
           },
-          modelSelection: ctxSelectedModelSelection,
+          modelSelection: encodeClaudeGatewayModelSelection(
+            ctxSelectedProvider,
+            ctxSelectedModelSelection,
+          ),
           titleSeed: title,
           runtimeMode,
           interactionMode: sendInteractionMode,
@@ -9782,7 +9786,10 @@ export default function ChatView(props: ChatViewProps) {
             ...(context ? { context } : {}),
             attachments: [],
           },
-          modelSelection: ctxSelectedModelSelection,
+          modelSelection: encodeClaudeGatewayModelSelection(
+            ctxSelectedProvider,
+            ctxSelectedModelSelection,
+          ),
           titleSeed: activeThread.title,
           runtimeMode,
           interactionMode: nextInteractionMode,
@@ -9896,7 +9903,10 @@ export default function ChatView(props: ChatViewProps) {
             text: outgoingImplementationPrompt,
             attachments: [],
           },
-          modelSelection: ctxSelectedModelSelection,
+          modelSelection: encodeClaudeGatewayModelSelection(
+            ctxSelectedProvider,
+            ctxSelectedModelSelection,
+          ),
           titleSeed: nextThreadTitle,
           runtimeMode: defaultRuntimeMode,
           interactionMode: "default",
