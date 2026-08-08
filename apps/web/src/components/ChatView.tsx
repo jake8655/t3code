@@ -205,12 +205,6 @@ import {
 import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { useBrowserHistoryStore } from "~/browserHistoryStore";
 import { registerFaviconProjectForThread } from "~/browserFaviconStore";
-import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
-import {
-  applyProviderInstanceSettings,
-  deriveProviderInstanceEntries,
-  NO_PROVIDER_MODEL_SELECTION,
-} from "../providerInstances";
 import {
   useClientSettings,
   useClientSettingsHydrated,
@@ -431,6 +425,16 @@ import {
   supportsServerUpdateThreadContinuation,
 } from "../versionSkew";
 import { useAssetUrls } from "../assets/assetUrls";
+import {
+  encodeClaudeGatewayModelSelection,
+  getProviderModelCapabilities,
+  resolveSelectableProvider,
+} from "~/providerModels";
+import {
+  applyProviderInstanceSettings,
+  deriveProviderInstanceEntries,
+  NO_PROVIDER_MODEL_SELECTION,
+} from "~/providerInstances";
 
 const ATTACHMENT_ONLY_BOOTSTRAP_PROMPT =
   "[User attached one or more files without additional text. Respond using the conversation context and the attached files.]";
@@ -6224,7 +6228,10 @@ function ChatViewContent(props: ChatViewProps) {
             text: outgoingMessageText,
             attachments: turnAttachmentsResult.value,
           },
-          modelSelection: ctxSelectedModelSelection,
+          modelSelection: encodeClaudeGatewayModelSelection(
+            ctxSelectedProvider,
+            ctxSelectedModelSelection,
+          ),
           titleSeed: title,
           runtimeMode,
           interactionMode,
@@ -6636,7 +6643,10 @@ function ChatViewContent(props: ChatViewProps) {
               text: outgoingMessageText,
               attachments: [],
             },
-            modelSelection: ctxSelectedModelSelection,
+            modelSelection: encodeClaudeGatewayModelSelection(
+              ctxSelectedProvider,
+              ctxSelectedModelSelection,
+            ),
             titleSeed: activeThread.title,
             runtimeMode,
             interactionMode: nextInteractionMode,
@@ -6772,7 +6782,10 @@ function ChatViewContent(props: ChatViewProps) {
             text: outgoingImplementationPrompt,
             attachments: [],
           },
-          modelSelection: ctxSelectedModelSelection,
+          modelSelection: encodeClaudeGatewayModelSelection(
+            ctxSelectedProvider,
+            ctxSelectedModelSelection,
+          ),
           titleSeed: nextThreadTitle,
           runtimeMode,
           interactionMode: "default",
