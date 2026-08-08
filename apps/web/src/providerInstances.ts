@@ -25,7 +25,7 @@ import {
   type ServerProviderState,
 } from "@t3tools/contracts";
 
-import { formatProviderDriverKindLabel } from "./providerModels";
+import { formatProviderDriverKindLabel, getClientProviderModels } from "./providerModels";
 
 /**
  * Local-only placeholder used while a draft has no provider it can safely
@@ -177,7 +177,7 @@ export function deriveProviderInstanceEntries(
       isDefault,
       isAvailable: snapshot.availability !== "unavailable",
       snapshot,
-      models: snapshot.models,
+      models: getClientProviderModels(snapshot),
     } satisfies ProviderInstanceEntry;
   });
 }

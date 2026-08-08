@@ -2,6 +2,7 @@ import {
   DEFAULT_MODEL,
   DEFAULT_MODEL_BY_PROVIDER,
   defaultInstanceIdForDriver,
+  type ModelSelection,
   ProviderDriverKind,
   type ModelCapabilities,
   type ProviderInstanceId,
@@ -14,6 +15,130 @@ const EMPTY_CAPABILITIES: ModelCapabilities = createModelCapabilities({
   optionDescriptors: [],
 });
 const DEFAULT_DRIVER_KIND = ProviderDriverKind.make("codex");
+const CLAUDE_DRIVER_KIND = ProviderDriverKind.make("claudeAgent");
+
+type ClaudeOpenAiGatewayModel = {
+  readonly name: string;
+  readonly efforts: ReadonlyArray<string>;
+  readonly defaultEffort: string;
+};
+
+/**
+ * OpenAI models exposed through an Anthropic-compatible Claude Code gateway.
+ *
+ * The registry-published server intentionally treats Claude custom models as
+ * capability-less. The desktop client can still present the gateway's known
+ * models accurately, while the outbound model suffix below lets CLIProxyAPI
+ * apply the selected reasoning effort without requiring a patched server.
+ */
+const CLAUDE_OPENAI_GATEWAY_MODELS: Readonly<Record<string, ClaudeOpenAiGatewayModel>> = {
+  "gpt-5.6-sol": {
+    name: "GPT 5.6 Sol",
+    efforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "low",
+  },
+  "gpt-5.6-terra": {
+    name: "GPT 5.6 Terra",
+    efforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+  },
+  "gpt-5.6-luna": {
+    name: "GPT 5.6 Luna",
+    efforts: ["low", "medium", "high", "xhigh", "max"],
+    defaultEffort: "medium",
+  },
+  "gpt-5.5": {
+    name: "GPT 5.5",
+    efforts: ["low", "medium", "high", "xhigh"],
+    defaultEffort: "medium",
+  },
+  "gpt-5.4": {
+    name: "GPT 5.4",
+    efforts: ["low", "medium", "high", "xhigh"],
+    defaultEffort: "medium",
+  },
+  "gpt-5.4-mini": {
+    name: "GPT 5.4 Mini",
+    efforts: ["low", "medium", "high", "xhigh"],
+    defaultEffort: "medium",
+  },
+  "gpt-5.3-codex-spark": {
+    name: "GPT 5.3 Codex Spark",
+    efforts: ["low", "medium", "high", "xhigh"],
+    defaultEffort: "medium",
+  },
+};
+
+function gatewayEffortLabel(effort: string): string {
+  return effort === "xhigh" ? "Extra High" : effort.charAt(0).toUpperCase() + effort.slice(1);
+}
+
+function enrichClaudeGatewayModel(model: ServerProviderModel): ServerProviderModel {
+  const gatewayModel = CLAUDE_OPENAI_GATEWAY_MODELS[model.slug];
+  if (!model.isCustom || !gatewayModel) {
+    return model;
+  }
+
+  return {
+    ...model,
+    name: gatewayModel.name,
+    ...(model.slug === "gpt-5.6-sol" ? { isDefault: true } : {}),
+    capabilities: createModelCapabilities({
+      optionDescriptors: [
+        {
+          id: "effort",
+          label: "Reasoning",
+          type: "select",
+          currentValue: gatewayModel.defaultEffort,
+          options: gatewayModel.efforts.map((effort) => ({
+            id: effort,
+            label: gatewayEffortLabel(effort),
+            ...(effort === gatewayModel.defaultEffort ? { isDefault: true } : {}),
+          })),
+        },
+      ],
+    }),
+  };
+}
+
+/** Client-facing provider models, including local gateway capability metadata. */
+export function getClientProviderModels(
+  provider: ServerProvider,
+): ReadonlyArray<ServerProviderModel> {
+  return provider.driver === CLAUDE_DRIVER_KIND
+    ? provider.models.map(enrichClaudeGatewayModel)
+    : provider.models;
+}
+
+/**
+ * CLIProxyAPI parses `model(effort)` and applies the suffix as the upstream
+ * OpenAI reasoning effort. Keep the durable T3 selection unsuffixed and use
+ * this transport-only form when starting or steering a Claude turn.
+ */
+export function encodeClaudeGatewayModelSelection(
+  provider: ProviderDriverKind,
+  selection: ModelSelection,
+): ModelSelection {
+  if (provider !== CLAUDE_DRIVER_KIND) {
+    return selection;
+  }
+
+  const gatewayModel = CLAUDE_OPENAI_GATEWAY_MODELS[selection.model];
+  if (!gatewayModel) {
+    return selection;
+  }
+
+  const selectedEffort = selection.options?.find((option) => option.id === "effort")?.value;
+  const effort =
+    typeof selectedEffort === "string" && gatewayModel.efforts.includes(selectedEffort)
+      ? selectedEffort
+      : gatewayModel.defaultEffort;
+
+  return {
+    ...selection,
+    model: `${selection.model}(${effort})`,
+  };
+}
 
 export function formatProviderDriverKindLabel(provider: ProviderDriverKind): string {
   return provider
@@ -27,7 +152,8 @@ export function getProviderModels(
   providers: ReadonlyArray<ServerProvider>,
   provider: ProviderDriverKind,
 ): ReadonlyArray<ServerProviderModel> {
-  return getProviderSnapshot(providers, provider)?.models ?? [];
+  const snapshot = getProviderSnapshot(providers, provider);
+  return snapshot ? getClientProviderModels(snapshot) : [];
 }
 
 export function getProviderSnapshot(

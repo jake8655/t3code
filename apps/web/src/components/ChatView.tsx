@@ -173,7 +173,11 @@ import {
 } from "~/projectScripts";
 import { newDraftId, newMessageId, newThreadId } from "~/lib/utils";
 import { useBrowserHistoryStore } from "~/browserHistoryStore";
-import { getProviderModelCapabilities, resolveSelectableProvider } from "../providerModels";
+import {
+  encodeClaudeGatewayModelSelection,
+  getProviderModelCapabilities,
+  resolveSelectableProvider,
+} from "../providerModels";
 import { NO_PROVIDER_MODEL_SELECTION } from "../providerInstances";
 import {
   useClientSettings,
@@ -5166,7 +5170,10 @@ function ChatViewContent(props: ChatViewProps) {
             text: outgoingMessageText,
             attachments: turnAttachmentsResult.value,
           },
-          modelSelection: ctxSelectedModelSelection,
+          modelSelection: encodeClaudeGatewayModelSelection(
+            ctxSelectedProvider,
+            ctxSelectedModelSelection,
+          ),
           titleSeed: title,
           runtimeMode,
           interactionMode,
@@ -5520,7 +5527,10 @@ function ChatViewContent(props: ChatViewProps) {
               text: outgoingMessageText,
               attachments: [],
             },
-            modelSelection: ctxSelectedModelSelection,
+            modelSelection: encodeClaudeGatewayModelSelection(
+              ctxSelectedProvider,
+              ctxSelectedModelSelection,
+            ),
             titleSeed: activeThread.title,
             runtimeMode,
             interactionMode: nextInteractionMode,
@@ -5652,7 +5662,10 @@ function ChatViewContent(props: ChatViewProps) {
             text: outgoingImplementationPrompt,
             attachments: [],
           },
-          modelSelection: ctxSelectedModelSelection,
+          modelSelection: encodeClaudeGatewayModelSelection(
+            ctxSelectedProvider,
+            ctxSelectedModelSelection,
+          ),
           titleSeed: nextThreadTitle,
           runtimeMode,
           interactionMode: "default",

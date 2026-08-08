@@ -47,77 +47,6 @@ const DEFAULT_CLAUDE_MODEL_CAPABILITIES: ModelCapabilities = createModelCapabili
   optionDescriptors: [],
 });
 
-function buildGatewayEffortCapabilities(
-  efforts: ReadonlyArray<string>,
-  defaultEffort: string,
-): ModelCapabilities {
-  return createModelCapabilities({
-    optionDescriptors: [
-      buildSelectOptionDescriptor({
-        id: "effort",
-        label: "Reasoning",
-        options: efforts.map((value) => ({
-          value,
-          label: value === "xhigh" ? "Extra High" : toTitleCaseWords(value),
-          ...(value === defaultEffort ? { isDefault: true } : {}),
-        })),
-      }),
-    ],
-  });
-}
-
-const OPENAI_GATEWAY_MODELS: ReadonlyArray<ServerProviderModel> = [
-  {
-    slug: "gpt-5.6-sol",
-    name: "GPT 5.6 Sol",
-    isCustom: true,
-    isDefault: true,
-    capabilities: buildGatewayEffortCapabilities(["low", "medium", "high", "xhigh", "max"], "low"),
-  },
-  {
-    slug: "gpt-5.6-terra",
-    name: "GPT 5.6 Terra",
-    isCustom: true,
-    capabilities: buildGatewayEffortCapabilities(
-      ["low", "medium", "high", "xhigh", "max"],
-      "medium",
-    ),
-  },
-  {
-    slug: "gpt-5.6-luna",
-    name: "GPT 5.6 Luna",
-    isCustom: true,
-    capabilities: buildGatewayEffortCapabilities(
-      ["low", "medium", "high", "xhigh", "max"],
-      "medium",
-    ),
-  },
-  {
-    slug: "gpt-5.5",
-    name: "GPT 5.5",
-    isCustom: true,
-    capabilities: buildGatewayEffortCapabilities(["low", "medium", "high", "xhigh"], "medium"),
-  },
-  {
-    slug: "gpt-5.4",
-    name: "GPT 5.4",
-    isCustom: true,
-    capabilities: buildGatewayEffortCapabilities(["low", "medium", "high", "xhigh"], "medium"),
-  },
-  {
-    slug: "gpt-5.4-mini",
-    name: "GPT 5.4 Mini",
-    isCustom: true,
-    capabilities: buildGatewayEffortCapabilities(["low", "medium", "high", "xhigh"], "medium"),
-  },
-  {
-    slug: "gpt-5.3-codex-spark",
-    name: "GPT 5.3 Codex Spark",
-    isCustom: true,
-    capabilities: buildGatewayEffortCapabilities(["low", "medium", "high", "xhigh"], "medium"),
-  },
-];
-
 const CLAUDE_PRESENTATION = {
   displayName: "Claude",
   showInteractionModeToggle: true,
@@ -450,26 +379,8 @@ export function getClaudeModelCapabilities(model: string | null | undefined): Mo
   const slug = model?.trim();
   return (
     BUILT_IN_MODELS.find((candidate) => candidate.slug === slug)?.capabilities ??
-    OPENAI_GATEWAY_MODELS.find((candidate) => candidate.slug === slug)?.capabilities ??
     DEFAULT_CLAUDE_MODEL_CAPABILITIES
   );
-}
-
-export function claudeModelsFromSettings(
-  builtInModels: ReadonlyArray<ServerProviderModel>,
-  customModels: ReadonlyArray<string>,
-): ReadonlyArray<ServerProviderModel> {
-  return providerModelsFromSettings(
-    builtInModels,
-    customModels,
-    DEFAULT_CLAUDE_MODEL_CAPABILITIES,
-  ).map((model) => {
-    if (!model.isCustom) {
-      return model;
-    }
-    const gatewayModel = OPENAI_GATEWAY_MODELS.find((candidate) => candidate.slug === model.slug);
-    return gatewayModel ?? model;
-  });
 }
 
 export function resolveClaudeEffort(
@@ -507,7 +418,6 @@ export function normalizeClaudeCliEffort(
   }
   if (
     effort === "xhigh" &&
-    !OPENAI_GATEWAY_MODELS.some((candidate) => candidate.slug === model) &&
     model !== "claude-fable-5" &&
     model !== "claude-opus-5" &&
     model !== "claude-opus-4-8" &&
@@ -892,7 +802,11 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
 > {
   const resolvedEnvironment = environment ?? process.env;
   const checkedAt = DateTime.formatIso(yield* DateTime.now);
-  const allModels = claudeModelsFromSettings(BUILT_IN_MODELS, claudeSettings.customModels);
+  const allModels = providerModelsFromSettings(
+    BUILT_IN_MODELS,
+    claudeSettings.customModels,
+    DEFAULT_CLAUDE_MODEL_CAPABILITIES,
+  );
 
   if (!claudeSettings.enabled) {
     return buildServerProvider({
@@ -978,9 +892,10 @@ export const checkClaudeProviderStatus = Effect.fn("checkClaudeProviderStatus")(
     });
   }
 
-  const models = claudeModelsFromSettings(
+  const models = providerModelsFromSettings(
     getBuiltInClaudeModelsForVersion(parsedVersion),
     claudeSettings.customModels,
+    DEFAULT_CLAUDE_MODEL_CAPABILITIES,
   );
   const versionUpgradeMessage = supportsClaudeOpus5(parsedVersion)
     ? undefined
@@ -1050,7 +965,11 @@ export const makePendingClaudeProvider = (
 ): Effect.Effect<ServerProviderDraft> =>
   Effect.gen(function* () {
     const checkedAt = yield* nowIso;
-    const models = claudeModelsFromSettings(BUILT_IN_MODELS, claudeSettings.customModels);
+    const models = providerModelsFromSettings(
+      BUILT_IN_MODELS,
+      claudeSettings.customModels,
+      DEFAULT_CLAUDE_MODEL_CAPABILITIES,
+    );
 
     if (!claudeSettings.enabled) {
       return buildServerProvider({
