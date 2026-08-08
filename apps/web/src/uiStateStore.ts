@@ -22,7 +22,7 @@ const LEGACY_PERSISTED_STATE_KEYS = [
 export interface PersistedUiState {
   projectExpandedById?: Record<string, boolean>;
   projectOrder?: string[];
-  sidebarV2SettledShelfExpanded?: boolean;
+  sidebarSettledShelfExpanded?: boolean;
   threadLastVisitedAtById?: Record<string, string>;
   collapsedProjectCwds?: string[];
   expandedProjectCwds?: string[];
@@ -44,7 +44,7 @@ export interface UiProjectState {
 }
 
 export interface UiSidebarState {
-  sidebarV2SettledShelfExpanded: boolean;
+  sidebarSettledShelfExpanded: boolean;
 }
 
 export interface UiThreadState {
@@ -67,7 +67,7 @@ const initialState: UiState = {
   projectExpandedById: {},
   projectOrder: [],
   sidebarProjectScopeKey: null,
-  sidebarV2SettledShelfExpanded: true,
+  sidebarSettledShelfExpanded: true,
   threadLastVisitedAtById: {},
   threadChangedFilesExpandedById: {},
   defaultAdvertisedEndpointKey: null,
@@ -154,9 +154,9 @@ export function parsePersistedState(parsed: PersistedUiState): UiState {
   return {
     projectExpandedById,
     projectOrder,
-    sidebarV2SettledShelfExpanded:
-      typeof parsed.sidebarV2SettledShelfExpanded === "boolean"
-        ? parsed.sidebarV2SettledShelfExpanded
+    sidebarSettledShelfExpanded:
+      typeof parsed.sidebarSettledShelfExpanded === "boolean"
+        ? parsed.sidebarSettledShelfExpanded
         : true,
     threadLastVisitedAtById: sanitizeTimestampRecord(parsed.threadLastVisitedAtById),
     threadChangedFilesExpandedById:
@@ -236,7 +236,7 @@ export function persistState(state: UiState): void {
       JSON.stringify({
         projectExpandedById,
         projectOrder: state.projectOrder,
-        sidebarV2SettledShelfExpanded: state.sidebarV2SettledShelfExpanded,
+        sidebarSettledShelfExpanded: state.sidebarSettledShelfExpanded,
         threadLastVisitedAtById: state.threadLastVisitedAtById,
         defaultAdvertisedEndpointKey: state.defaultAdvertisedEndpointKey,
         sidebarProjectScopeKey: state.sidebarProjectScopeKey,
@@ -357,13 +357,13 @@ function setPullRequestMergeMethod(state: UiState, method: PullRequestMergeMetho
     : { ...state, pullRequestMergeMethod: method };
 }
 
-export function setSidebarV2SettledShelfExpanded(state: UiState, expanded: boolean): UiState {
-  if (state.sidebarV2SettledShelfExpanded === expanded) {
+export function setSidebarSettledShelfExpanded(state: UiState, expanded: boolean): UiState {
+  if (state.sidebarSettledShelfExpanded === expanded) {
     return state;
   }
   return {
     ...state,
-    sidebarV2SettledShelfExpanded: expanded,
+    sidebarSettledShelfExpanded: expanded,
   };
 }
 export function resolveProjectExpanded(
@@ -450,7 +450,7 @@ interface UiStateStore extends UiState {
   setDefaultAdvertisedEndpointKey: (key: string | null) => void;
   setSidebarProjectScopeKey: (projectKey: string | null) => void;
   setPullRequestMergeMethod: (method: PullRequestMergeMethod) => void;
-  setSidebarV2SettledShelfExpanded: (expanded: boolean) => void;
+  setSidebarSettledShelfExpanded: (expanded: boolean) => void;
   setProjectExpanded: (projectIds: string | readonly string[], expanded: boolean) => void;
   reorderProjects: (
     currentProjectOrder: readonly string[],
@@ -472,8 +472,8 @@ export const useUiStateStore = create<UiStateStore>((set) => ({
   setSidebarProjectScopeKey: (projectKey) =>
     set((state) => setSidebarProjectScopeKey(state, projectKey)),
   setPullRequestMergeMethod: (method) => set((state) => setPullRequestMergeMethod(state, method)),
-  setSidebarV2SettledShelfExpanded: (expanded) =>
-    set((state) => setSidebarV2SettledShelfExpanded(state, expanded)),
+  setSidebarSettledShelfExpanded: (expanded) =>
+    set((state) => setSidebarSettledShelfExpanded(state, expanded)),
   setProjectExpanded: (projectIds, expanded) =>
     set((state) => setProjectExpanded(state, projectIds, expanded)),
   reorderProjects: (currentProjectOrder, draggedProjectIds, targetProjectIds) =>
