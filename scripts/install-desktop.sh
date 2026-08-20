@@ -91,7 +91,7 @@ fi
 
 mkdir -p -- "${app_dir}" "${applications_dir}" "${icon_dir}"
 install -m 0755 -- "${app_images[0]}" "${installed_app}"
-install -m 0644 -- "${repo_root}/apps/desktop/resources/icon.png" "${installed_icon}"
+install -m 0644 -- "${repo_root}/apps/marketing/public/icon.png" "${installed_icon}"
 
 desktop_exec="${installed_app//\\/\\\\}"
 desktop_exec="${desktop_exec//\"/\\\"}"
