@@ -1,7 +1,9 @@
 import { assert, describe, it } from "@effect/vitest";
+import * as NodePath from "@effect/platform-node/NodePath";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
+import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 import * as HttpClient from "effect/http/HttpClient";
@@ -16,6 +18,9 @@ import * as TestClock from "effect/testing/TestClock";
 
 import * as DesktopBackendPool from "./DesktopBackendPool.ts";
 import * as DesktopLocalEnvironmentAuth from "./DesktopLocalEnvironmentAuth.ts";
+import * as DesktopConfig from "../app/DesktopConfig.ts";
+import * as DesktopEnvironment from "../app/DesktopEnvironment.ts";
+import * as DesktopState from "../app/DesktopState.ts";
 
 const config = {
   executablePath: "/electron",
@@ -35,6 +40,25 @@ const config = {
   httpBaseUrl: new URL("http://127.0.0.1:3773"),
   captureOutput: true,
 };
+
+// The service reads a bearer token from the installed background service when
+// hosted app mode is on. These tests keep hosted app mode off, so the
+// dependencies are only here to satisfy the service's context.
+const layerHostedAppSupport = Layer.mergeAll(
+  FileSystem.layerNoop({}),
+  DesktopState.layer,
+  DesktopEnvironment.layer({
+    dirname: "/repo/apps/desktop/dist-electron",
+    homeDirectory: "/Users/alice",
+    platform: "darwin",
+    processArch: "arm64",
+    appVersion: "1.2.3",
+    appPath: "/Applications/T3 Code.app/Contents/Resources/app.asar",
+    isPackaged: true,
+    resourcesPath: "/Applications/T3 Code.app/Contents/Resources",
+    runningUnderArm64Translation: false,
+  }).pipe(Layer.provide(Layer.mergeAll(NodePath.layerPosix, DesktopConfig.layerTest({})))),
+);
 
 describe("DesktopLocalEnvironmentAuth", () => {
   it.effect("exchanges the desktop bootstrap credential only once", () =>
@@ -72,7 +96,7 @@ describe("DesktopLocalEnvironmentAuth", () => {
         ]),
       } as unknown as DesktopBackendPool.DesktopBackendPool["Service"]);
       const layerTest = DesktopLocalEnvironmentAuth.layer.pipe(
-        Layer.provide(Layer.mergeAll(layerPool, layerHttpClient)),
+        Layer.provide(Layer.mergeAll(layerPool, layerHttpClient, layerHostedAppSupport)),
       );
 
       const [first, second] = yield* Effect.gen(function* () {
@@ -135,7 +159,7 @@ describe("DesktopLocalEnvironmentAuth", () => {
         }).pipe(
           Effect.provide(
             DesktopLocalEnvironmentAuth.layer.pipe(
-              Layer.provide(Layer.mergeAll(poolLayer, httpClientLayer)),
+              Layer.provide(Layer.mergeAll(poolLayer, httpClientLayer, layerHostedAppSupport)),
             ),
           ),
         );
@@ -188,7 +212,7 @@ describe("DesktopLocalEnvironmentAuth", () => {
       const auth = yield* DesktopLocalEnvironmentAuth.DesktopLocalEnvironmentAuth.pipe(
         Effect.provide(
           DesktopLocalEnvironmentAuth.layer.pipe(
-            Layer.provide(Layer.mergeAll(layerPool, layerHttpClient)),
+            Layer.provide(Layer.mergeAll(layerPool, layerHttpClient, layerHostedAppSupport)),
           ),
         ),
       );

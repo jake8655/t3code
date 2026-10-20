@@ -358,7 +358,7 @@ function layerTest(input: {
         }),
       ),
     ),
-    Layer.merge(DesktopState.layer),
+    Layer.merge(desktopStateLayer),
   );
 }
 
@@ -442,7 +442,6 @@ const makeSplashScenario = (createOutcomes: readonly (Electron.BrowserWindow | n
           layerDesktopServerExposure,
           DesktopState.layer,
           layerElectronApp,
-          DesktopState.layer,
           layerElectronMenu,
           Layer.succeed(ElectronShell.ElectronShell, {
             openExternal: () => Effect.succeed(true),
@@ -934,7 +933,7 @@ describe("DesktopWindow", () => {
         yield* desktopWindow.handleBackendReady(new URL("https://app.t3.codes"));
 
         assert.equal(yield* Ref.get(createCount), 1);
-        assert.deepEqual(fakeWindow.loadURL.mock.calls[0], ["https://app.t3.codes"]);
+        assert.deepEqual(fakeWindow.loadURL.mock.calls[0], ["https://app.t3.codes/"]);
         assert.isUndefined(createdWindowOptions[0]?.webPreferences?.preload);
         assert.isFalse(createdWindowOptions[0]?.webPreferences?.webviewTag);
         assert.equal(fakeWindow.openDevTools.mock.calls.length, 0);

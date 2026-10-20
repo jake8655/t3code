@@ -3,11 +3,8 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as NodeFsPromises from "node:fs/promises";
-import * as NodePath from "node:path";
 import * as Path from "effect/Path";
 import * as Mime from "effect/http/Mime";
-import { pathToFileURL } from "node:url";
 import * as Ref from "effect/Ref";
 import * as Schedule from "effect/Schedule";
 import * as Schema from "effect/Schema";
@@ -186,7 +183,7 @@ const proxyRequest = Effect.fn("desktop.protocol.proxyRequest")(function* (
 
   if (rendererRootPath) {
     return withContentSecurityPolicy(
-      yield* Effect.promise(() => serveRendererFile(request, requestUrl, rendererRootPath)),
+      yield* serveRendererFile(request, requestUrl, rendererRootPath),
       contentSecurityPolicy,
     );
   }
@@ -226,19 +223,24 @@ const proxyRequest = Effect.fn("desktop.protocol.proxyRequest")(function* (
   return withContentSecurityPolicy(response, contentSecurityPolicy);
 });
 
-async function serveRendererFile(
+// Serves the renderer bundle straight from disk when the desktop app reuses
+// the installed background service: files resolve within the renderer root,
+// and any other path falls back to index.html so the SPA router handles it.
+const serveRendererFile = Effect.fn("desktop.protocol.serveRendererFile")(function* (
   request: Request,
   requestUrl: URL,
   rendererRootPath: string,
-): Promise<Response> {
+) {
+  const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
   if (request.method !== "GET" && request.method !== "HEAD") {
     return new Response("Method Not Allowed", { status: 405 });
   }
 
-  const rendererRoot = NodePath.resolve(rendererRootPath);
+  const rendererRoot = path.resolve(rendererRootPath);
   const requestPath = requestUrl.pathname === "/" ? "/index.html" : requestUrl.pathname;
   const rawRelativePath = requestPath.replace(/^[/\\]+/u, "");
-  const relativePath = NodePath.normalize(rawRelativePath).replace(/^[/\\]+/u, "");
+  const relativePath = path.normalize(rawRelativePath).replace(/^[/\\]+/u, "");
   if (
     relativePath.length === 0 ||
     rawRelativePath.startsWith("..") ||
@@ -251,37 +253,42 @@ async function serveRendererFile(
   const isWithinRendererRoot = (candidate: string) =>
     candidate === rendererRoot ||
     candidate.startsWith(
-      rendererRoot.endsWith(NodePath.sep) ? rendererRoot : `${rendererRoot}${NodePath.sep}`,
+      rendererRoot.endsWith(path.sep) ? rendererRoot : `${rendererRoot}${path.sep}`,
     );
 
-  let filePath = NodePath.resolve(rendererRoot, relativePath);
+  let filePath = path.resolve(rendererRoot, relativePath);
   if (!isWithinRendererRoot(filePath)) {
     return new Response("Invalid renderer file path", { status: 400 });
   }
 
-  if (!NodePath.extname(filePath)) {
-    filePath = NodePath.resolve(filePath, "index.html");
+  if (path.extname(filePath) === "") {
+    filePath = path.resolve(filePath, "index.html");
   }
 
-  const fileExists = async (candidate: string) => {
-    try {
-      return (await NodeFsPromises.stat(candidate)).isFile();
-    } catch {
-      return false;
-    }
-  };
+  const fileExists = (candidate: string) =>
+    fileSystem.stat(candidate).pipe(
+      Effect.map((info) => info.type === "File"),
+      Effect.orElseSucceed(() => false),
+    );
 
-  if (!(await fileExists(filePath))) {
-    filePath = NodePath.resolve(rendererRoot, "index.html");
+  if (!(yield* fileExists(filePath))) {
+    filePath = path.resolve(rendererRoot, "index.html");
   }
-  if (!isWithinRendererRoot(filePath) || !(await fileExists(filePath))) {
+  if (!isWithinRendererRoot(filePath) || !(yield* fileExists(filePath))) {
     return new Response("Not Found", { status: 404 });
   }
 
-  return Electron.net.fetch(pathToFileURL(filePath).toString(), {
-    method: request.method,
-  });
-}
+  const fileUrl = yield* path.toFileUrl(filePath).pipe(Effect.orElseSucceed(() => null));
+  if (fileUrl === null) {
+    return new Response("Not Found", { status: 404 });
+  }
+
+  return yield* Effect.promise(() =>
+    Electron.net.fetch(fileUrl.toString(), {
+      method: request.method,
+    }),
+  );
+});
 
 // Serves the packaged web client without a backend: files resolve within the
 // asset directory, and any other path falls back to index.html so the SPA

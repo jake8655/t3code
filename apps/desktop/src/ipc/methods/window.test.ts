@@ -25,6 +25,7 @@ import * as DesktopBackendPool from "../../backend/DesktopBackendPool.ts";
 import * as ElectronDialog from "../../electron/ElectronDialog.ts";
 import * as ElectronWindow from "../../electron/ElectronWindow.ts";
 import * as DesktopAppSettings from "../../settings/DesktopAppSettings.ts";
+import * as DesktopState from "../../app/DesktopState.ts";
 import {
   getLocalEnvironmentBootstraps,
   getRelayTelemetryEnabled,
@@ -85,7 +86,10 @@ const backendConfigurationLayer = Layer.succeed(
 );
 
 const bootstrapsLayer = (instances: ReadonlyArray<DesktopBackendManager.DesktopBackendInstance>) =>
-  Layer.merge(DesktopBackendPool.layerTest([...instances]), backendConfigurationLayer);
+  Layer.merge(
+    DesktopBackendPool.layerTest([...instances]),
+    Layer.merge(backendConfigurationLayer, DesktopState.layer),
+  );
 
 describe("getLocalEnvironmentBootstraps", () => {
   it.effect("publishes the concrete running distro without replacing the stable instance id", () =>
